@@ -1,6 +1,5 @@
 import * as xmljs from 'xml-js';
-import * as fs from 'fs';
-import { parseTime } from './parser';
+import { formatTime, parseTime } from './parser';
 import { Dom } from 'dom-parser';
 
 export enum TTMLLineType {
@@ -98,6 +97,8 @@ export class TTML {
     metadata: TTMLMetadata = {};
     /** Duration of the TTML */
     dur: number = 0;
+    /** Applied offset time of the TTML */
+    offset: number = 0;
     /** Contents of the TTML */
     contents: TTMLContent[] = [];
     /** Raw TTML string */
@@ -108,6 +109,9 @@ export class TTML {
      * @param ttml TTML string input
      */
     static parse(ttml: string): TTML {
+        const dom = new Dom(ttml)
+        console.log(dom.getElementsByTagName('tt')[0].getElementsByTagName('head')[0])
+
         let ttmlJson: any = xmljs.xml2js(ttml, { compact: true });
         if (!ttmlJson.tt) { throw new Error('Invalid TTML format: Missing <tt> root element.'); }
         ttmlJson = ttmlJson.tt;
@@ -278,7 +282,7 @@ export class TTML {
             }
         }
 
-        console.log(ttmlObj.getLineByITunesKey('L4'))
+        // console.log(ttmlObj.toLRC(true))
         return ttmlObj;
     }
 
@@ -296,7 +300,7 @@ export class TTML {
     }
 
     /**
-     * Get all lines performed by the agent
+     * Gets all lines performed by the agent
      * @param agentId Identifier of the performing agent
      */
     getLinesByAgent(agentId: string): TTMLContentLine[] {
@@ -310,7 +314,22 @@ export class TTML {
     }
 
     /**
-     * Get all contents belonging to a specified iTunes song part
+     * Gets all lines within a specified time range
+     * @param begin Beginning time in seconds
+     * @param end Ending time in seconds
+     */
+    getLinesByTimeRange(begin: number, end: number): TTMLContentLine[] {
+        const contents = [] as TTMLContentLine[];
+        for (const content of this.contents) {
+            for (const line of content.lines) {
+                if (line.begin >= begin && line.end <= end) { contents.push(line); }
+            }
+        }
+        return contents;
+    }
+
+    /**
+     * Gets all contents belonging to a specified iTunes song part
      * @param part Song part name
      */
     getContentsBySongPart(part: string): TTMLContent[] {
@@ -322,22 +341,79 @@ export class TTML {
     }
 
     /**
-     * Apply offset time to each timestamp 
+     * Gets all contents within a specified time range
+     * @param begin Beginning time in seconds
+     * @param end Ending time in seconds
+     */
+    getContentsByTimeRange(begin: number, end: number): TTMLContent[] {
+        const contents = [] as TTMLContent[];
+        for (const content of this.contents) {
+            if (content.begin >= begin && content.end <= end) { contents.push(content); }
+        }
+        return contents;
+    }
+
+    /**
+     * Apply offset time to each timestamp
      * @param timeOffset Number of seconds
      */
-    offset(timeOffset: number) {
-
+    setOffset(timeOffset: number) {
+        this.offset += timeOffset;
+        this.contents.forEach((content) => {
+            content.begin += timeOffset;
+            content.end += timeOffset;
+            content.lines.forEach((line) => {
+                line.begin += timeOffset;
+                line.end += timeOffset;
+                if (Array.isArray(line.content)) {
+                    line.content.forEach((word) => {
+                        word.begin += timeOffset;
+                        word.end += timeOffset;
+                    });
+                }
+            });
+        });
     }
 
     /**
      * Convert TTML object into an LRC string
      * - Some metadata will be lost
+     * - Only taking the line of every content - content begin and end time will be ignored
      * - All lyric line with different agent will be treated as a normal line
      * - Background word will be merged at the end of the line
-     * @param enhanced (default: `false`) Whether to output enhanced LRC with word-level timestamps
+     * @param enhanced (default: `false`) Whether to return enhanced LRC with word-level timestamps
      */
     toLRC(enhanced = false): string {
         let lrcBuilt = '';
+        this.contents.forEach((content) => {
+            content.lines.forEach((line) => {
+                lrcBuilt += `[${formatTime(line.begin)}] `;
+                if (enhanced) {
+                    if (Array.isArray(line.content)) {
+                        let lineStr = '';
+                        let wordEnd = 0
+                        
+                        line.content.forEach((word) => {
+                            if (word.type != TTMLWordType.WORD) { return; }
+                            lineStr += `<${formatTime(word.begin)}> ${word.text} `;
+                            wordEnd = word.end;
+                        });
+
+                        // Append background words at the end
+                        line.content.forEach((word) => {
+                            if (word.type != TTMLWordType.BACKGROUND) { return; }
+                            lineStr += `<${formatTime(word.begin)}> ${word.text} `;
+                            wordEnd = word.end;
+                        });
+
+                        lrcBuilt += `${lineStr}`;
+                        lrcBuilt += `<${formatTime(wordEnd)}> `;
+                        lrcBuilt += `\n`;
+                    } else { lrcBuilt += `${line.content}\n`; }
+                } else { lrcBuilt += `${line.joinedContent}\n`; }
+            })
+        })
+        lrcBuilt += `[${formatTime(this.contents[this.contents.length - 1].end)}] `;
         return lrcBuilt;
     }
 }
