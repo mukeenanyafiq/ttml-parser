@@ -75,6 +75,8 @@ export interface TTMLContentLine extends TTMLTimestamp {
     agent?: string;
     /** The content for the current line, could be normal text or array of timed text */
     content: TTMLContentWord[] | string;
+    /** A stringified version of `content` element, whether it's a normal text or an array of timed text */
+    joinedContent?: string;
     /** (iTunes specified) Identifier for the current lyric line useful for translations and transliterations */
     key?: string;
 }
@@ -99,7 +101,7 @@ export class TTML {
     /** Contents of the TTML */
     contents: TTMLContent[] = [];
     /** Raw TTML string */
-    rawTTML: string = '';
+    raw: string = '';
 
     /**
      * Parse a TTML string into a TTML object
@@ -111,7 +113,7 @@ export class TTML {
         ttmlJson = ttmlJson.tt;
 
         let ttmlObj = new this();
-        ttmlObj.rawTTML = ttml;
+        ttmlObj.raw = ttml;
         
         // Top-level metadata
         if (ttmlJson._attributes) {
@@ -219,6 +221,7 @@ export class TTML {
                             } as TTMLContentLine;
                             lineObj.dur = lyricObj.end - lyricObj.begin;
                             lineObj.content = line.span ? [] as TTMLContentWord[] : (line._text || '').trim();
+                            lineObj.joinedContent = lineObj.content as string;
 
                             // content lines words
                             if (Array.isArray(lineObj.content)) {
@@ -233,6 +236,8 @@ export class TTML {
                                         }
                                     }
                                 }
+
+                                lineObj.joinedContent = origLine.join('');
 
                                 const spanArray = Array.isArray(line.span) ? line.span : [line.span];
                                 spanArray.forEach((word: any, wordIndex: number) => {
@@ -273,17 +278,21 @@ export class TTML {
             }
         }
 
-        console.log(ttmlObj.metadata)
+        console.log(ttmlObj.getLineByITunesKey('L4'))
         return ttmlObj;
     }
 
     /**
      * Find a line by its specified iTunes key
-     * @param key 
+     * @param key iTunes key string
      */
     getLineByITunesKey(key: string): TTMLContentLine | null {
-
-        return {} as TTMLContentLine;
+        for (const content of this.contents) {
+            for (const line of content.lines) {
+                if (line.key == key) { return line; }
+            }
+        }
+        return null;
     }
 
     /**
@@ -291,7 +300,25 @@ export class TTML {
      * @param agentId Identifier of the performing agent
      */
     getLinesByAgent(agentId: string): TTMLContentLine[] {
-        return [] as TTMLContentLine[];
+        const contents = [] as TTMLContentLine[];
+        for (const content of this.contents) {
+            for (const line of content.lines) {
+                if (line.agent == agentId) { contents.push(line); }
+            }
+        }
+        return contents;
+    }
+
+    /**
+     * Get all contents belonging to a specified iTunes song part
+     * @param part Song part name
+     */
+    getContentsBySongPart(part: string): TTMLContent[] {
+        const contents = [] as TTMLContent[];
+        for (const content of this.contents) {
+            if (content.songPart == part) { contents.push(content); }
+        }
+        return contents;
     }
 
     /**
