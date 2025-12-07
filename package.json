@@ -1,7 +1,7 @@
 {
   "name": "ttml-parser",
   "version": "1.0.0",
-  "description": "A simple module for parsing simple TTML (Timed Text Markup Language), converting them to LRC, and more.",
+  "description": "Lightweight module for parsing simple TTML (Timed Text Markup Language), converting them to LRC, and more.",
   "main": "lib/cjs/lrc-kit.js",
   "module": "lib/esm/lrc-kit.js",
   "scripts": {
@@ -10,11 +10,11 @@
   "author": "Keenan Yafiq (mukeenanyafiq)",
   "license": "MIT",
   "dependencies": {
-    "dom-parser": "^1.1.5",
-    "xml-js": "^1.6.11"
+    "@xmldom/xmldom": "^0.8.11"
   },
   "devDependencies": {
     "@types/node": "^24.10.1",
+    "@types/xmldom": "^0.1.34",
     "typescript": "^5.9.3"
   },
   "repository": {

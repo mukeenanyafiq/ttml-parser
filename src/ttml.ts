@@ -1,6 +1,5 @@
-import * as xmljs from 'xml-js';
-import { formatTime, parseTime } from './parser';
-import { Dom } from 'dom-parser';
+import { DOMParser, XMLSerializer } from '@xmldom/xmldom';
+import { formatTime, parseTime, elementToJson } from './parser';
 
 export enum TTMLLineType {
     /** Normal lyric line, placed as left-to-right `ttm:agent v1` */
@@ -48,9 +47,9 @@ export interface TTMLMetadata {
     /** (iTunes specified) Songwriters of the track */
     songwriters?: string[];
     /** (iTunes specified) Translations - Other language and way of singing the music */
-    translations?: TTMLMetadataTranslation;
+    translations?: TTMLMetadataTranslation[];
     /** (iTunes specified) Transliterations - How you would sing or say a word of the original TTML localization in a mouthful way */
-    transliterations?: TTMLMetadataTrans;
+    transliterations?: TTMLMetadataTrans[];
 }
 
 export interface TTMLTimestamp {
@@ -108,23 +107,18 @@ export class TTML {
      * Parse a TTML string into a TTML object
      * @param ttml TTML string input
      */
-    static parse(ttml: string): TTML {
-        const dom = new Dom(ttml)
-        console.log(dom.getElementsByTagName('tt')[0].getElementsByTagName('head')[0])
+    static parse(ttml: string) {
+        const dom = new DOMParser().parseFromString(ttml, 'text/xml')
+        let ttmlJson = elementToJson(dom.documentElement);
 
-        let ttmlJson: any = xmljs.xml2js(ttml, { compact: true });
-        if (!ttmlJson.tt) { throw new Error('Invalid TTML format: Missing <tt> root element.'); }
-        ttmlJson = ttmlJson.tt;
-
+        // writeFileSync('./domtest.json', JSON.stringify(dom, null, 4))
         let ttmlObj = new this();
         ttmlObj.raw = ttml;
         
         // Top-level metadata
-        if (ttmlJson._attributes) {
-            ttmlObj.metadata.lang = ttmlJson._attributes['xml:lang'];
-            ttmlObj.metadata.timing = ttmlJson._attributes['itunes:timing'];
-        }
-
+        ttmlObj.metadata.lang = ttmlJson['_xml:lang'];
+        ttmlObj.metadata.timing = ttmlJson['_itunes:timing'];
+        
         const head = ttmlJson.head; // For metadata
         const body = ttmlJson.body; // For contents
         
@@ -138,9 +132,9 @@ export class TTML {
                 const agents = Array.isArray(metadata['ttm:agent']) ? metadata['ttm:agent'] : [metadata['ttm:agent']];
                 ttmlObj.metadata.agents = [] as TTMLMetadataAgent[];
                 for (const agent of agents) {
-                    const id = agent._attributes?.['xml:id'];
-                    const type = agent._attributes?.type;
-                    const name = agent['ttm:name']?._text;
+                    const id = agent['_xml:id'];
+                    const type = agent['_type'];
+                    const name = agent['_ttm:name']?.__text;
                     ttmlObj.metadata.agents.push({ id, type, name });
                 }
             }
@@ -149,17 +143,29 @@ export class TTML {
             const itunes = metadata.iTunesMetadata;
             if (itunes) {
                 // leading silence
-                ttmlObj.metadata.leadingSilence = itunes._attributes?.leadingSilence ? parseTime(itunes._attributes.leadingSilence) : 0;
+                ttmlObj.metadata.leadingSilence = itunes['_leadingSilence'] ? parseTime(itunes['_leadingSilence']) : 0;
 
                 // translations
                 if (itunes.translations && itunes.translations.translation) {
-                    ttmlObj.metadata.translations = {} as TTMLMetadataTranslation;
+                    ttmlObj.metadata.translations = [] as TTMLMetadataTranslation[];
                     const translations = Array.isArray(itunes.translations.translation) ? itunes.translations.translation : [itunes.translations.translation];
                     for (const translation of translations) {
-                        const type = translation._attributes?.type;
-                        const lang = translation._attributes?.lang;
-                        const content = [];
+                        const transObj = {
+                            type: translation['_type'],
+                            lang: translation['_xml:lang'],
+                            content: []
+                        } as TTMLMetadataTranslation;
 
+                        if (translation.text) {
+                            translation.text.forEach((textItem: any) => {
+                                transObj.content.push({
+                                    for: textItem['_for'],
+                                    text: textItem.__text,
+                                })
+                            })
+                        }
+
+                        ttmlObj.metadata.translations.push(transObj)
                     }
                 }
 
@@ -168,25 +174,30 @@ export class TTML {
                     ttmlObj.metadata.songwriters = [] as string[];
                     const songwriters = Array.isArray(itunes.songwriters.songwriter) ? itunes.songwriters.songwriter : [itunes.songwriters.songwriter];
                     for (const songwriter of songwriters) {
-                        ttmlObj.metadata.songwriters.push(songwriter._text);
+                        ttmlObj.metadata.songwriters.push(songwriter.__text);
                     }
                 }
 
                 // transliterations
                 if (itunes.transliterations && itunes.transliterations.transliteration) {
-                    ttmlObj.metadata.transliterations = {} as TTMLMetadataTrans;
+                    ttmlObj.metadata.transliterations = [] as TTMLMetadataTrans[];
                     const transliterations = Array.isArray(itunes.transliterations.transliteration) ? itunes.transliterations.transliteration : [itunes.transliterations.transliteration];
                     for (const transliteration of transliterations) {
-                        ttmlObj.metadata.transliterations.lang = transliteration._attributes?.['xml:lang'];
+                        const transObj = {
+                            lang: transliteration['_xml:lang'],
+                            content: []
+                        } as TTMLMetadataTrans;
+
                         if (transliteration.text) {
-                            ttmlObj.metadata.transliterations.content = [] as TTMLMetadataTransContent[];
                             transliteration.text.forEach((textItem: any) => {
-                                ttmlObj.metadata.transliterations.content.push({
-                                    for: textItem._attributes?.for,
-                                    text: textItem._text,
+                                transObj.content.push({
+                                    for: textItem['_for'],
+                                    text: textItem.__text,
                                 })
                             })
                         }
+
+                        ttmlObj.metadata.transliterations.push(transObj)
                     }
                 }
             }
@@ -195,47 +206,49 @@ export class TTML {
         // [body] Parse contents
         if (body) {
             // get duration
-            ttmlObj.dur = body._attributes?.dur ? parseTime(body._attributes.dur) : 0;
+            ttmlObj.dur = body['_dur'] ? parseTime(body['_dur']) : 0;
 
             // get lyrics
             if (body.div) {
-                const dom = new Dom(ttml).getElementsByTagName('div')
+                const div = dom.getElementsByTagName('div')
 
                 // content
                 body.div.forEach((lyric: any, index: number) => {
                     const lyricObj = {
-                        songPart: lyric._attributes?.['itunes:songPart'],
-                        begin: parseTime(lyric._attributes?.begin) || 0,
-                        end: parseTime(lyric._attributes?.end) || 0,
+                        songPart: lyric['_itunes:songPart'],
+                        begin: parseTime(lyric['_begin']) || 0,
+                        end: parseTime(lyric['_end']) || 0,
                         lines: [],
                     } as TTMLContent;
                     lyricObj.dur = lyricObj.end - lyricObj.begin;
 
                     // content lines
                     if (lyric.p) {
+                        const serializer = new XMLSerializer()
                         const pArray = Array.isArray(lyric.p) ? lyric.p : [lyric.p];
-                        const pDom = dom[index].getElementsByTagName('p');
+                        const pDom = div[index].getElementsByTagName('p');
                         
                         pArray.forEach((line: any, lineIndex: number) => {
                             const lineObj = {
-                                key: line._attributes?.['itunes:key'],
-                                agent: line._attributes?.['ttm:agent'],
-                                begin: parseTime(line._attributes?.begin) || 0,
-                                end: parseTime(line._attributes?.end) || 0,
+                                key: line['_itunes:key'],
+                                agent: line['_ttm:agent'],
+                                begin: parseTime(line['_begin']) || 0,
+                                end: parseTime(line['_end']) || 0,
                             } as TTMLContentLine;
                             lineObj.dur = lyricObj.end - lyricObj.begin;
-                            lineObj.content = line.span ? [] as TTMLContentWord[] : (line._text || '').trim();
+                            lineObj.content = line.span ? [] as TTMLContentWord[] : (line.__text || '').trim();
                             lineObj.joinedContent = lineObj.content as string;
 
                             // content lines words
                             if (Array.isArray(lineObj.content)) {
-                                let origLine = pDom[lineIndex].innerHTML.split(/<[^>]*>/g)
+                                let origLine = serializer.serializeToString(pDom[lineIndex]).split(/<[^>]*>/g)
+                                
                                 if (origLine.length > 1) {
-                                    origLine.shift();
+                                    origLine.splice(0, 2);
                                     for (let i = 0; i < origLine.length; i++) {
                                         if (i > 0 && origLine[i].trim() == '') {
                                             const text = origLine[i]
-                                            origLine[i-1] += text;
+                                            origLine[i - 1] += text;
                                             origLine.splice(i, 1);
                                         }
                                     }
@@ -246,14 +259,14 @@ export class TTML {
                                 const spanArray = Array.isArray(line.span) ? line.span : [line.span];
                                 spanArray.forEach((word: any, wordIndex: number) => {
                                     // content lines background words (god damn)
-                                    if (word._attributes['ttm:role'] == 'x-bg' && word.span) {
+                                    if (word['_ttm:role'] == 'x-bg' && word.span) {
                                         const bgSpanArray = Array.isArray(word.span) ? word.span : [word.span];
                                         bgSpanArray.forEach((bgWord: any, bgIndex: number) => {
                                             const bgWordObj = {
                                                 type: TTMLWordType.BACKGROUND,
                                                 text: origLine[wordIndex + bgIndex + 1],
-                                                begin: parseTime(bgWord._attributes?.begin) || 0,
-                                                end: parseTime(bgWord._attributes?.end) || 0,
+                                                begin: parseTime(bgWord['_begin']) || 0,
+                                                end: parseTime(bgWord['_end']) || 0,
                                             } as TTMLContentWord;
                                             bgWordObj.dur = bgWordObj.end - bgWordObj.begin;
 
@@ -263,8 +276,8 @@ export class TTML {
                                         const wordObj = {
                                             type: TTMLWordType.WORD,
                                             text: origLine[wordIndex],
-                                            begin: parseTime(word._attributes?.begin) || 0,
-                                            end: parseTime(word._attributes?.end) || 0,
+                                            begin: parseTime(word['_begin']) || 0,
+                                            end: parseTime(word['_end']) || 0,
                                         } as TTMLContentWord;
                                         wordObj.dur = wordObj.end - wordObj.begin;
 
@@ -282,15 +295,14 @@ export class TTML {
             }
         }
 
-        // console.log(ttmlObj.toLRC(true))
         return ttmlObj;
     }
 
     /**
-     * Find a line by its specified iTunes key
+     * (iTunes) Find a line by its specified key
      * @param key iTunes key string
      */
-    getLineByITunesKey(key: string): TTMLContentLine | null {
+    getLineByKey(key: string): TTMLContentLine | null {
         for (const content of this.contents) {
             for (const line of content.lines) {
                 if (line.key == key) { return line; }
@@ -329,7 +341,23 @@ export class TTML {
     }
 
     /**
-     * Gets all contents belonging to a specified iTunes song part
+     * (iTunes) Gets the transliteration for a lyric line
+     * @param lang Localization of the transliteration
+     * @param key iTunes key string
+     */
+    getLineTransliteration(lang: string, key: string): string | null {
+        if (!this.metadata.transliterations) { return null; }
+        for (const transliteration of this.metadata.transliterations) {
+            if (transliteration.lang != lang) { continue; }
+            for (const keys of transliteration.content) {
+                if (keys.for == key) { return keys.text; }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * (iTunes) Gets all contents belonging to a specific song part
      * @param part Song part name
      */
     getContentsBySongPart(part: string): TTMLContent[] {

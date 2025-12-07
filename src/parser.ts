@@ -32,3 +32,49 @@ export function formatTime(seconds: number): string {
     const secs = (seconds % 60).toFixed(3);
     return `${padZero(mins)}:${padZero(secs)}`;
 }
+
+/**
+ * Turns a DOM Node Element into a JSON object
+ * @param element
+ */
+export function elementToJson(element: Element): Record<string, any> {
+    const obj: Record<string, any> = {};
+
+    // Handle element attributes
+    if (element.attributes && element.attributes.length > 0) {
+        for (let i = 0; i < element.attributes.length; i++) {
+            const attr = element.attributes[i];
+            const name = "_" + attr.name;
+            obj[name] = attr.value;
+        }
+    }
+
+    // Handle child nodes
+    for (let i = 0; i < element.childNodes.length; i++) {
+        const child = element.childNodes[i];
+
+        if (child.nodeType == 1) {
+            // Element node
+            const childElement = child as Element;
+            const name = childElement.nodeName;
+
+            const childObj = elementToJson(childElement);
+
+            if (obj[name]) {
+                // Already exists → convert to array
+                if (!Array.isArray(obj[name])) {
+                    obj[name] = [obj[name]];
+                }
+                obj[name].push(childObj);
+            } else {
+                obj[name] = childObj;
+            }
+        } else if (child.nodeType == 3) {
+            // Text node
+            const text = (child.nodeValue || "").trim();
+            if (text) obj["__text"] = text;
+        }
+    }
+
+    return obj;
+}
