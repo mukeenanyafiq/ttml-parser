@@ -1,8 +1,10 @@
 {
   "compilerOptions": {
+    "declaration": true,
     "module": "commonjs",
+    "skipLibCheck": true,
     "noImplicitAny": true,
-    "removeComments": true,
+    "downlevelIteration": true,
     "preserveConstEnums": true,
     "sourceMap": true
   },
