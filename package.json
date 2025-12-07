@@ -1,0 +1,38 @@
+{
+  "name": "ttml-parser",
+  "version": "1.0.0",
+  "description": "A simple module for parsing simple TTML (Timed Text Markup Language), converting them to LRC, and more.",
+  "main": "lib/cjs/lrc-kit.js",
+  "module": "lib/esm/lrc-kit.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Keenan Yafiq (mukeenanyafiq)",
+  "license": "MIT",
+  "dependencies": {
+    "dom-parser": "^1.1.5",
+    "xml-js": "^1.6.11"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "typescript": "^5.9.3"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mukeenanyafiq/ttml-parser.git"
+  },
+  "keywords": [
+    "ttml",
+    "lrc",
+    "lyric",
+    "elrc"
+  ],
+  "files": [
+    "lib",
+    "src"
+  ],
+  "bugs": {
+    "url": "https://github.com/mukeenanyafiq/ttml-parser/issues"
+  },
+  "homepage": "https://github.com/mukeenanyafiq/ttml-parser"
+}
